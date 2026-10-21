@@ -13,7 +13,7 @@ A native, zero-PC Discord Rich Presence background daemon for jailbroken PlaySta
 - **Automatic Icon Resolution & Upload:** Pulls local game icons (`icon0.png`) and uploads them automatically if not present on Sony TMDB.
 - **Smart Game Detection:**
   - Auto-clears Discord presence when a game closes (leaving your profile clean).
-  - Restarts the playtime timer (`00:00`) whenever you switch games.
+  - Restarts the playtime timer whenever you switch games.
 - **Web Dashboard (`http://<PS5_IP>:6767`):**
   - Manage settings, customize status/buttons, and toggle games on/off.
   - Game Library view with one-click title blacklisting.
