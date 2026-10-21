@@ -42,8 +42,13 @@ A notification will pop up on your TV screen displaying your console's web dashb
    http://<PS5_IP>:6767
    ```
 2. Paste your **Discord User Token**.
-3. (Optional) Customize buttons, details, or blacklist games.
-4. Click **Save to PS5 & Update**.
+3. (Optional) Customize buttons, details, or blacklist titles in the **Game Manager**.
+4. Click **Save & Apply Settings**.
+
+![Web Dashboard Settings](assets/web_panel_dashboard.png)
+
+![Game Manager](assets/web_panel_game_manager.png)
+
 5. Launch any game—your Discord status updates instantly!
 
 ![Discord Rich Presence Preview](assets/discord_presence.png)
