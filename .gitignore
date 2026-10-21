@@ -1,0 +1,23 @@
+# Build outputs and intermediate binaries
+build/
+*.o
+*.a
+*.rsp
+*.elf
+
+# Local machine build scripts
+*.py
+*.bat
+
+# Archive packages
+*.7z
+*.zip
+*.tar.*
+scratch/
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/

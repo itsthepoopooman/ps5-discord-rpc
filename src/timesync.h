@@ -1,0 +1,28 @@
+/* timesync.h - SNTP wall-clock correction for Discord timestamps.
+ *
+ * Jailbroken consoles commonly block Sony servers (ban avoidance), which
+ * also kills PSN time sync — the PS4 clock then drifts (observed: +38min
+ * and growing, plus wrong timezones). Discord timestamps must be true
+ * UTC or the timer wedges at 0:00, so the daemon syncs itself against
+ * public NTP (no Sony involved) and stamps sessions with corrected time.
+ * Failure degrades to the local clock (old behavior), never fatal. */
+#ifndef ORBISRPC_TIMESYNC_H
+#define ORBISRPC_TIMESYNC_H
+#include <stdint.h>
+/* Try an SNTP exchange; on success stores offset and returns 0. -1 = keep
+ * old offset (first boot without sync behaves like before). */
+int time_sync(void);
+/* Boot sweep: try all hosts (bounded, once per boot, before first
+ * connect — never in the live loop). */
+int time_sync_all(void);
+/* Corrected wall clock for Discord epoch stamps. */
+int64_t time_fixed(void);
+/* Step the system clock by the stored NTP offset when it is sane to do
+ * so (synced, |offset| >= 60s). 0 = stepped or already sane, -1 =
+ * unsynced or set failed (offset kept, never fatal). */
+int time_apply_offset(void);
+#ifdef HEALTH_TESTABLE
+/* Test-only: force an offset/synced state. */
+void time_set_offset_for_test(int64_t off);
+#endif
+#endif
