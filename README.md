@@ -61,15 +61,15 @@ Configuration and cache files are stored permanently on console storage across r
 
 ## Building from Source
 
-### Windows
-Run the automated build script (requires LLVM Clang / Prospero Clang):
-```cmd
-build.bat
-```
+Requires the [PS5 Payload SDK](https://github.com/ps5-payload-dev/sdk).
 
-### Linux / macOS
 ```bash
 make
+```
+
+*(Optionally specify the SDK path if installed outside `/opt/ps5-payload-sdk`)*:
+```bash
+make PS5_PAYLOAD_SDK=/path/to/ps5-payload-sdk
 ```
 
 The compiled binary will be generated as `discord_rpc.elf`.
