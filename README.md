@@ -33,8 +33,8 @@ nc -q0 <PS5_IP> 9021 < discord_rpc.elf
 ```
 
 A notification will pop up on your TV screen displaying your console's web dashboard address:
-> `Web Control: <PS5_IP>:6767`  
-> `Discord RPC Started!`
+
+![PS5 Notification Pop-up](assets/ps5_notification.png)
 
 ### 2. Configure via Web Dashboard
 1. On your phone or PC, open your browser to:
@@ -45,6 +45,8 @@ A notification will pop up on your TV screen displaying your console's web dashb
 3. (Optional) Customize buttons, details, or blacklist games.
 4. Click **Save to PS5 & Update**.
 5. Launch any game—your Discord status updates instantly!
+
+![Discord Rich Presence Preview](assets/discord_presence.png)
 
 ---
 
