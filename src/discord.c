@@ -488,7 +488,7 @@ void* discord_gateway_thread(void* arg) {
 
         char last_game_id[64] = "";
         strncpy(last_game_id, g_current_game.title_id, sizeof(last_game_id) - 1);
-        char last_icon_url[256] = "";
+        char last_icon_url[512] = "";
         strncpy(last_icon_url, g_current_game.icon_url, sizeof(last_icon_url) - 1);
         int64_t last_art_retry_time = 0;
 

@@ -11,6 +11,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -20,17 +21,26 @@
 #define CATBOX_HOST "catbox.moe"
 #define CATBOX_DEADLINE_S 30
 #define CATBOX_MAX_CACHE 256
+#define CATBOX_URL_MAX 512
 #define BOUNDARY "----WebKitFormBoundary7MA4YWxkTrZu0gW"
 
 #define ICON_CACHE_PRIMARY   "/data/discord_rpc/icon_cache.json"
 #define ICON_CACHE_FALLBACK  "/user/home/discord_rpc/icon_cache.json"
 
+/* Any URL we produced from an upload contains this host. It is also the only
+ * thing that makes a cached entry reusable: files written by older builds can
+ * hold a raw Sony/GitHub media-proxy path (mp:external/.../https/gs2-sec...),
+ * and returning one of those would silently skip the upload that this cache
+ * exists for in the first place. */
+#define CATBOX_URL_MARKER "files.catbox.moe"
+
 static struct {
     char title_id[32];
-    char url[256];
+    char url[CATBOX_URL_MAX];
 } s_cache[CATBOX_MAX_CACHE];
 static int s_cache_count = 0;
 static int s_cache_loaded = 0;
+static pthread_mutex_t s_cache_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void mkdir_p(const char* dir) {
     char tmp[256];
@@ -52,7 +62,30 @@ static void mkdir_p(const char* dir) {
     mkdir(tmp, 0777);
 }
 
-static void load_cache_file(void) {
+static int cache_url_is_catbox(const char *url) {
+    return url && url[0] && strstr(url, CATBOX_URL_MARKER) != NULL;
+}
+
+/* Insert or replace by title_id. Later writes win, and the same key is never
+ * emitted twice (older builds appended a second row after a failed upload). */
+static void cache_store_locked(const char *title_id, const char *url) {
+    if (!title_id || !title_id[0] || !url || !url[0]) return;
+
+    for (int i = 0; i < s_cache_count; i++) {
+        if (strcmp(s_cache[i].title_id, title_id) == 0) {
+            snprintf(s_cache[i].url, sizeof(s_cache[i].url), "%s", url);
+            return;
+        }
+    }
+    if (s_cache_count >= CATBOX_MAX_CACHE) return;
+
+    snprintf(s_cache[s_cache_count].title_id, sizeof(s_cache[0].title_id), "%s", title_id);
+    snprintf(s_cache[s_cache_count].url, sizeof(s_cache[0].url), "%s", url);
+    s_cache_count++;
+}
+
+/* Caller holds s_cache_lock. */
+static void load_cache_file_locked(void) {
     if (s_cache_loaded) return;
     s_cache_loaded = 1;
 
@@ -81,12 +114,10 @@ static void load_cache_file(void) {
 
         for (jl_val_t *pair = root->child; pair; pair = pair->next) {
             if (pair->str && pair->child && pair->child->type == JL_STRING && pair->child->str) {
-                if (s_cache_count < CATBOX_MAX_CACHE) {
-                    strncpy(s_cache[s_cache_count].title_id, pair->str, sizeof(s_cache[s_cache_count].title_id) - 1);
-                    s_cache[s_cache_count].title_id[sizeof(s_cache[s_cache_count].title_id) - 1] = '\0';
-                    strncpy(s_cache[s_cache_count].url, pair->child->str, sizeof(s_cache[s_cache_count].url) - 1);
-                    s_cache[s_cache_count].url[sizeof(s_cache[s_cache_count].url) - 1] = '\0';
-                    s_cache_count++;
+                /* Drop non-Catbox rows left by older builds: they are re-derived
+                 * on the fly and must not look like a completed upload. */
+                if (cache_url_is_catbox(pair->child->str)) {
+                    cache_store_locked(pair->str, pair->child->str);
                 }
             }
         }
@@ -96,7 +127,8 @@ static void load_cache_file(void) {
     }
 }
 
-static void save_cache_file(void) {
+/* Caller holds s_cache_lock. */
+static void save_cache_file_locked(void) {
     jl_val_t *root = jl_new_object();
     if (!root) return;
 
@@ -123,45 +155,70 @@ static void save_cache_file(void) {
     free(json);
 }
 
-void catbox_cache_update(const char *title_id, const char *url) {
-    if (!title_id || !title_id[0] || !url || !url[0]) return;
-    load_cache_file();
+int catbox_cache_lookup(const char *title_id, char *out_url, size_t cap) {
+    if (!title_id || !title_id[0] || !out_url || cap == 0) return 0;
+    out_url[0] = '\0';
+
+    pthread_mutex_lock(&s_cache_lock);
+    load_cache_file_locked();
+
+    int found = 0;
     for (int i = 0; i < s_cache_count; i++) {
         if (strcmp(s_cache[i].title_id, title_id) == 0) {
-            strncpy(s_cache[i].url, url, sizeof(s_cache[i].url) - 1);
-            s_cache[i].url[sizeof(s_cache[i].url) - 1] = '\0';
-            save_cache_file();
-            return;
+            if (cache_url_is_catbox(s_cache[i].url)) {
+                snprintf(out_url, cap, "%s", s_cache[i].url);
+                found = 1;
+            }
+            break;
         }
     }
-    if (s_cache_count < CATBOX_MAX_CACHE) {
-        strncpy(s_cache[s_cache_count].title_id, title_id, sizeof(s_cache[s_cache_count].title_id) - 1);
-        s_cache[s_cache_count].title_id[sizeof(s_cache[s_cache_count].title_id) - 1] = '\0';
-        strncpy(s_cache[s_cache_count].url, url, sizeof(s_cache[s_cache_count].url) - 1);
-        s_cache[s_cache_count].url[sizeof(s_cache[s_cache_count].url) - 1] = '\0';
-        s_cache_count++;
-        save_cache_file();
+
+    pthread_mutex_unlock(&s_cache_lock);
+    return found;
+}
+
+void catbox_cache_update(const char *title_id, const char *url) {
+    if (!title_id || !title_id[0] || !url || !url[0]) return;
+
+    /* Keep the cache a record of Catbox uploads. Media-proxy paths for Sony or
+     * GitHub art are regenerated on the fly and must not evict an upload. */
+    if (!cache_url_is_catbox(url)) {
+        printf("[PS5-RPC] Not caching non-Catbox icon for %s: %s\n", title_id, url);
+        return;
     }
+
+    pthread_mutex_lock(&s_cache_lock);
+    load_cache_file_locked();
+    cache_store_locked(title_id, url);
+    save_cache_file_locked();
+    pthread_mutex_unlock(&s_cache_lock);
 }
 
 int catbox_upload_icon(const char *title_id, const char *file_path, char *out_url, size_t cap) {
     if (!title_id || !file_path || !out_url || cap < 32) return 0;
     out_url[0] = '\0';
 
-    // 1. Ensure persistent cache is loaded
-    load_cache_file();
-
-    // 2. Check cache (avoids reuploading if already uploaded before)
+    // 1. Ensure persistent cache is loaded and reuse an actual Catbox upload
+    pthread_mutex_lock(&s_cache_lock);
+    load_cache_file_locked();
+    int cached = 0;
     for (int i = 0; i < s_cache_count; i++) {
         if (strcmp(s_cache[i].title_id, title_id) == 0) {
-            strncpy(out_url, s_cache[i].url, cap - 1);
-            out_url[cap - 1] = '\0';
-            printf("[PS5-RPC] Using persistent cached Catbox icon for %s: %s\n", title_id, out_url);
-            return 1;
+            if (cache_url_is_catbox(s_cache[i].url)) {
+                snprintf(out_url, cap, "%s", s_cache[i].url);
+                cached = 1;
+            }
+            break;
         }
     }
+    pthread_mutex_unlock(&s_cache_lock);
 
-    // 3. Read PNG file from disk
+    if (cached) {
+        printf("[PS5-RPC] Using persistent cached Catbox icon for %s: %s\n", title_id, out_url);
+        return 1;
+    }
+
+    // 2. Read PNG file from disk
     FILE *f = fopen(file_path, "rb");
     if (!f) {
         printf("[PS5-RPC] Cannot open icon file: %s\n", file_path);
@@ -185,7 +242,7 @@ int catbox_upload_icon(const char *title_id, const char *file_path, char *out_ur
         return 0;
     }
 
-    // 4. Resolve catbox.moe IP (system DNS with public DNS fallback)
+    // 3. Resolve catbox.moe IP (system DNS with public DNS fallback)
     struct sockaddr_in sa;
     memset(&sa, 0, sizeof(sa));
     sa.sin_family = AF_INET;
@@ -218,7 +275,7 @@ int catbox_upload_icon(const char *title_id, const char *file_path, char *out_ur
         return 0;
     }
 
-    // 5. Connect TCP socket + TLS
+    // 4. Connect TCP socket + TLS
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
         free(file_data);
@@ -247,7 +304,7 @@ int catbox_upload_icon(const char *title_id, const char *file_path, char *out_ur
         return 0;
     }
 
-    // 6. Construct multipart/form-data
+    // 5. Construct multipart/form-data
     char part_head[512];
     int head_len = snprintf(part_head, sizeof(part_head),
         "--" BOUNDARY "\r\n"
@@ -288,7 +345,7 @@ int catbox_upload_icon(const char *title_id, const char *file_path, char *out_ur
         return 0;
     }
 
-    // 7. Read HTTP response
+    // 6. Read HTTP response
     static char raw_resp[4096];
     size_t bl = 0;
     int64_t dl = orbis_mono_s() + CATBOX_DEADLINE_S + 5;
@@ -334,24 +391,21 @@ int catbox_upload_icon(const char *title_id, const char *file_path, char *out_ur
     }
 
     int success = 0;
-    if (strstr(url_p, "files.catbox.moe/")) {
+    if (cache_url_is_catbox(url_p)) {
         if (strncmp(url_p, "http://", 7) == 0) {
             snprintf(out_url, cap, "https://%s", url_p + 7);
         } else {
-            strncpy(out_url, url_p, cap - 1);
-            out_url[cap - 1] = '\0';
+            snprintf(out_url, cap, "%s", url_p);
         }
         success = 1;
 
         // Cache result in memory and persist to JSON file on disk
-        if (s_cache_count < CATBOX_MAX_CACHE) {
-            strncpy(s_cache[s_cache_count].title_id, title_id, sizeof(s_cache[s_cache_count].title_id) - 1);
-            s_cache[s_cache_count].title_id[sizeof(s_cache[s_cache_count].title_id) - 1] = '\0';
-            strncpy(s_cache[s_cache_count].url, out_url, sizeof(s_cache[s_cache_count].url) - 1);
-            s_cache[s_cache_count].url[sizeof(s_cache[s_cache_count].url) - 1] = '\0';
-            s_cache_count++;
-            save_cache_file();
-        }
+        pthread_mutex_lock(&s_cache_lock);
+        load_cache_file_locked();
+        cache_store_locked(title_id, out_url);
+        save_cache_file_locked();
+        pthread_mutex_unlock(&s_cache_lock);
+
         printf("[PS5-RPC] Successfully uploaded icon to Catbox: %s\n", out_url);
     } else {
         printf("[PS5-RPC] Unexpected response from Catbox: %s\n", body);

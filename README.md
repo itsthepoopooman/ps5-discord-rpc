@@ -10,7 +10,7 @@ A native, zero-PC Discord Rich Presence background daemon for jailbroken PlaySta
 
 - **100% Console Native:** Runs silently in the background as an ELF daemon.
 - **Official PS5 Presence:** Displays "Playing on PlayStation 5" with the official console badge and game covers.
-- **Automatic Icon Resolution & Upload:** Pulls local game icons (`icon0.png`) and uploads them automatically if not present on Sony TMDB.
+- **Automatic Icon Resolution & Upload:** Uploads each installed game's local `icon0.png` to Catbox once, then falls back to Sony TMDB / Steam artwork only when no local icon exists.
 - **Smart Game Detection:**
   - Auto-clears Discord presence when a game closes (leaving your profile clean).
   - Restarts the playtime timer whenever you switch games.
@@ -60,7 +60,7 @@ A notification will pop up on your TV screen displaying your console's web dashb
 Configuration and cache files are stored permanently on console storage across reboots:
 
 - `/data/discord_rpc/config.json` — User settings (token, buttons, toggles, blacklist)
-- `/data/discord_rpc/icon_cache.json` — Uploaded icon URL cache
+- `/data/discord_rpc/icon_cache.json` — Per-title Catbox upload cache (title ID → uploaded icon URL)
 
 *(Fallback: `/user/home/discord_rpc/` is used automatically if `/data` is not accessible).*
 

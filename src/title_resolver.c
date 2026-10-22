@@ -215,55 +215,19 @@ bool resolve_game_metadata(const char* title_id, const char* raw_folder, char* t
         printf("[PS5-RPC] Resolved local title name: %s\n", title_name_out);
     }
 
-    // 2. Resolve high-resolution official icon URL & fallback title name from Sony TMDB (PS4 games)
-    char tmdb_name[128] = "";
-    char tmdb_icon[256] = "";
-    if (strncmp(title_id, "CUSA", 4) == 0) {
-        printf("[PS5-RPC] Querying Sony TMDB for title %s...\n", title_id);
-        if (tmdb_resolve(title_id, tmdb_name, sizeof(tmdb_name), tmdb_icon, sizeof(tmdb_icon)) == 0) {
-            if (!title_name_out[0] && tmdb_name[0]) {
-                strncpy(title_name_out, tmdb_name, name_sz - 1);
-                title_name_out[name_sz - 1] = '\0';
-                printf("[PS5-RPC] Resolved TMDB title name: %s\n", title_name_out);
-            }
-            if (tmdb_icon[0]) {
-                if (strncmp(tmdb_icon, "http://", 7) == 0) {
-                    snprintf(icon_url_out, icon_sz, "https://%s", tmdb_icon + 7);
-                } else {
-                    strncpy(icon_url_out, tmdb_icon, icon_sz - 1);
-                    icon_url_out[icon_sz - 1] = '\0';
-                }
-                printf("[PS5-RPC] Resolved TMDB icon URL: %s\n", icon_url_out);
-            }
-        }
+    // 2. Reuse a Catbox icon uploaded earlier for this title. This skips the
+    // upload entirely on relaunch and keeps the cache an actual record of
+    // Catbox-hosted icons.
+    if (catbox_cache_lookup(title_id, icon_url_out, icon_sz)) {
+        printf("[PS5-RPC] Reusing cached Catbox icon for %s: %s\n", title_id, icon_url_out);
     }
 
-    // 3. Known homebrew friendly names fallback
-    if (!title_name_out[0]) {
-        if (strcmp(title_id, "ITEM00001") == 0) strncpy(title_name_out, "Itemzflow Game Manager", name_sz - 1);
-        else if (strcmp(title_id, "APOL00001") == 0 || strcmp(title_id, "APOL00000") == 0) strncpy(title_name_out, "Apollo Save Tool", name_sz - 1);
-        else if (strcmp(title_id, "CHIA00001") == 0) strncpy(title_name_out, "Chiaki PS Remote Play", name_sz - 1);
-        else {
-            strncpy(title_name_out, title_id, name_sz - 1);
-        }
-        title_name_out[name_sz - 1] = '\0';
-    }
-
-    // 4. Check curated PlayStation exclusives table
-    if (!icon_url_out[0]) {
-        for (int i = 0; s_ps_exclusives[i].prefix; i++) {
-            if (strncmp(title_id, s_ps_exclusives[i].prefix, strlen(s_ps_exclusives[i].prefix)) == 0) {
-                strncpy(icon_url_out, s_ps_exclusives[i].icon_url, icon_sz - 1);
-                icon_url_out[icon_sz - 1] = '\0';
-                printf("[PS5-RPC] Resolved curated PlayStation exclusive icon: %s\n", icon_url_out);
-                break;
-            }
-        }
-    }
-
-    // 5. PRIORITIZE LOCAL CONSOLE PNG UPLOAD TO CATBOX.MOE!
+    // 3. PRIORITIZE LOCAL CONSOLE PNG UPLOAD TO CATBOX.MOE!
     // Supports native retail games, ShadowMount Plus mounts, and all homebrew apps.
     // Persistent JSON cache (/data/discord_rpc/icon_cache.json) guarantees it only uploads once.
+    // Running this BEFORE Sony TMDB is what keeps every installed game on Catbox:
+    // TMDB art used to win for CUSA titles, so those icons were never uploaded and
+    // the cache filled up with raw gs2-sec media-proxy paths instead.
     if (!icon_url_out[0]) {
         char local_icon[300] = {0};
         if (find_readable_icon(title_id, raw_folder, local_icon, sizeof(local_icon))) {
@@ -276,7 +240,54 @@ bool resolve_game_metadata(const char* title_id, const char* raw_folder, char* t
         }
     }
 
-    // 6. Fallback: Query Steam Store Search if local icon was not found on disk or upload failed
+    // 4. Fallback: resolve official icon URL & title name from Sony TMDB (PS4 games).
+    // The icon is only taken when the console had no usable local icon0.png.
+    char tmdb_name[128] = "";
+    char tmdb_icon[256] = "";
+    if (strncmp(title_id, "CUSA", 4) == 0) {
+        printf("[PS5-RPC] Querying Sony TMDB for title %s...\n", title_id);
+        if (tmdb_resolve(title_id, tmdb_name, sizeof(tmdb_name), tmdb_icon, sizeof(tmdb_icon)) == 0) {
+            if (!title_name_out[0] && tmdb_name[0]) {
+                strncpy(title_name_out, tmdb_name, name_sz - 1);
+                title_name_out[name_sz - 1] = '\0';
+                printf("[PS5-RPC] Resolved TMDB title name: %s\n", title_name_out);
+            }
+            if (tmdb_icon[0] && !icon_url_out[0]) {
+                if (strncmp(tmdb_icon, "http://", 7) == 0) {
+                    snprintf(icon_url_out, icon_sz, "https://%s", tmdb_icon + 7);
+                } else {
+                    strncpy(icon_url_out, tmdb_icon, icon_sz - 1);
+                    icon_url_out[icon_sz - 1] = '\0';
+                }
+                printf("[PS5-RPC] Resolved TMDB icon URL: %s\n", icon_url_out);
+            }
+        }
+    }
+
+    // 5. Known homebrew friendly names fallback
+    if (!title_name_out[0]) {
+        if (strcmp(title_id, "ITEM00001") == 0) strncpy(title_name_out, "Itemzflow Game Manager", name_sz - 1);
+        else if (strcmp(title_id, "APOL00001") == 0 || strcmp(title_id, "APOL00000") == 0) strncpy(title_name_out, "Apollo Save Tool", name_sz - 1);
+        else if (strcmp(title_id, "CHIA00001") == 0) strncpy(title_name_out, "Chiaki PS Remote Play", name_sz - 1);
+        else {
+            strncpy(title_name_out, title_id, name_sz - 1);
+        }
+        title_name_out[name_sz - 1] = '\0';
+    }
+
+    // 6. Check curated PlayStation exclusives table
+    if (!icon_url_out[0]) {
+        for (int i = 0; s_ps_exclusives[i].prefix; i++) {
+            if (strncmp(title_id, s_ps_exclusives[i].prefix, strlen(s_ps_exclusives[i].prefix)) == 0) {
+                strncpy(icon_url_out, s_ps_exclusives[i].icon_url, icon_sz - 1);
+                icon_url_out[icon_sz - 1] = '\0';
+                printf("[PS5-RPC] Resolved curated PlayStation exclusive icon: %s\n", icon_url_out);
+                break;
+            }
+        }
+    }
+
+    // 7. Fallback: Query Steam Store Search if local icon was not found on disk or upload failed
     if (!icon_url_out[0] && title_name_out[0]) {
         char steam_icon[256] = "";
         printf("[PS5-RPC] Local icon not found. Fallback querying Steam Store for \"%s\"...\n", title_name_out);
@@ -287,7 +298,7 @@ bool resolve_game_metadata(const char* title_id, const char* raw_folder, char* t
         }
     }
 
-    // 7. Last-resort fallback icon URL
+    // 8. Last-resort fallback icon URL
     if (!icon_url_out[0]) {
         strncpy(icon_url_out,
                 "https://raw.githubusercontent.com/SirHumza/orbisRPC/refs/heads/main/config/images/icons/ps-logo-full.png",
@@ -295,7 +306,7 @@ bool resolve_game_metadata(const char* title_id, const char* raw_folder, char* t
         icon_url_out[icon_sz - 1] = '\0';
     }
 
-    // 8. Pre-resolve with Discord Media Proxy (mp:) before returning!
+    // 9. Pre-resolve with Discord Media Proxy (mp:) before returning!
     // Discord client requires large_image to start with "mp:" to render external URLs.
     // If it's a raw https:// URL, we query Discord's external-assets API and retry up to 5 times.
     if (icon_url_out[0] && strncmp(icon_url_out, "mp:", 3) != 0 && g_config.token[0]) {
@@ -538,7 +549,7 @@ void* process_monitor_thread(void* arg) {
             // New game launched or game swapped
             if (!g_current_game.is_running || strcmp(g_current_game.title_id, detected_id) != 0) {
                 char new_title_name[128] = "";
-                char new_icon_url[256] = "";
+                char new_icon_url[512] = "";
 
                 printf("[PS5-RPC] Detected title %s (%s). Resolving icon & uploading before showing RPC...\n", 
                        detected_id, detected_folder);
