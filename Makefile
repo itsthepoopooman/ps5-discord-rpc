@@ -1,7 +1,7 @@
 #target := ps5
 CC := clang
 CFLAGS := -O2 -Wall -std=gnu17 -pthread
-LDFLAGS := -pthread -lSceNotification -lScePad -lSceSystemService -lSceUserService
+LDFLAGS := -pthread -lSceNotification
 
 # If using ps5-payload-sdk
 PS5_PAYLOAD_SDK ?= /opt/ps5-payload-sdk
@@ -15,7 +15,8 @@ SRCS := src/main.c \
         src/webserver.c \
         src/title_resolver.c \
         src/discord_auth.c \
-        src/ui_launcher.c \
+        src/discord_voice.c \
+        src/kabuki_overlay.c \
         src/discord.c
 
 OBJS := $(SRCS:.c=.o)

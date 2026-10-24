@@ -12,6 +12,7 @@
 #include "detect.h"
 #include "timesync.h"
 #include "catbox.h"
+#include "discord_voice.h"
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -302,6 +303,23 @@ static int discord_tick_session(discord_session_t *d) {
     return 0;
 }
 
+static int send_voice_state_update(discord_session_t *d) {
+    if (!d || !d->connected) return -1;
+    char v_msg[512];
+    if (g_voice_state.connected && g_voice_state.guild_id[0] && g_voice_state.channel_id[0]) {
+        snprintf(v_msg, sizeof(v_msg),
+            "{\"op\":4,\"d\":{\"guild_id\":\"%s\",\"channel_id\":\"%s\",\"self_mute\":%s,\"self_deaf\":%s}}",
+            g_voice_state.guild_id, g_voice_state.channel_id,
+            g_voice_state.self_mute ? "true" : "false",
+            g_voice_state.self_deaf ? "true" : "false");
+    } else {
+        snprintf(v_msg, sizeof(v_msg),
+            "{\"op\":4,\"d\":{\"guild_id\":null,\"channel_id\":null,\"self_mute\":false,\"self_deaf\":false}}");
+    }
+    printf("[PS5-RPC] Sending Voice State Update: %s\n", v_msg);
+    return ws_send_text(&d->ws, v_msg, strlen(v_msg));
+}
+
 static int send_presence_update(discord_session_t *d) {
     if (!d || !d->connected) return -1;
 
@@ -530,6 +548,11 @@ void* discord_gateway_thread(void* arg) {
             if (g_config.needs_update) {
                 g_config.needs_update = false;
                 send_presence_update(&dc);
+            }
+
+            if (g_voice_state.needs_update) {
+                g_voice_state.needs_update = false;
+                send_voice_state_update(&dc);
             }
 
             usleep(250000); // 250ms tick

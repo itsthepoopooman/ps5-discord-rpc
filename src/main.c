@@ -4,7 +4,8 @@
 #include "timesync.h"
 #include "webserver.h"
 #include "notify.h"
-#include "ui_launcher.h"
+#include "discord_voice.h"
+#include "kabuki_overlay.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -109,12 +110,16 @@ int main(void) {
     printf("========================================\n");
     printf("  Ported & Modernized for Prospero Clang\n");
     printf("  Web Dashboard: Port 6767\n");
+    printf("  Kabuki Overlay: 127.0.0.1:38590\n");
     printf("========================================\n");
 
     // 0. Ensure embedded Discord notification icon is written to disk
     write_embedded_icon();
 
-    // 1. Load or initialize configuration
+    // 1. Initialize voice state
+    discord_voice_init();
+
+    // 2. Load or initialize configuration
     if (!config_load(&g_config)) {
         printf("[PS5-RPC] No existing config found. Setting defaults.\n");
         config_set_defaults(&g_config);
@@ -123,23 +128,23 @@ int main(void) {
         printf("[PS5-RPC] Loaded configuration from %s\n", g_active_config_path);
     }
 
-    // 2. Synchronize true UTC wall clock for Discord timestamps
+    // 3. Synchronize true UTC wall clock for Discord timestamps
     printf("[PS5-RPC] Synchronizing network time for Discord timestamps...\n");
     time_sync_all();
 
-    // 3. Alert the user on the TV/Monitor with the exact IP and keybind for UI
+    // 4. Alert the user on the TV/Monitor with the exact IP and overlay instructions
     char local_ip[64] = "";
     get_local_ip(local_ip, sizeof(local_ip));
     char subject_msg[128];
     if (local_ip[0]) {
-        snprintf(subject_msg, sizeof(subject_msg), "Web: %s:6767", local_ip);
+        snprintf(subject_msg, sizeof(subject_msg), "Web: %s:6767 | In-Game: L3+R3", local_ip);
     } else {
-        snprintf(subject_msg, sizeof(subject_msg), "Web Control: Port 6767");
+        snprintf(subject_msg, sizeof(subject_msg), "Web: Port 6767 | In-Game: L3+R3");
     }
-    notify_custom("\xef\xa2\x84 + \xef\xa2\x8d: Open Discord UI", subject_msg, NULL);
+    notify_custom("Discord RPC & Voice Active", subject_msg, NULL);
 
-    // 4. Launch background threads with 1MB stack to guarantee stability
-    pthread_t t_web, t_monitor, t_discord, t_ctrl;
+    // 5. Launch background threads with 1MB stack to guarantee stability
+    pthread_t t_web, t_monitor, t_discord, t_kabuki;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setstacksize(&attr, 1024 * 1024);
@@ -156,17 +161,17 @@ int main(void) {
         fprintf(stderr, "[PS5-RPC] Failed to start Discord Gateway thread!\n");
     }
 
-    if (pthread_create(&t_ctrl, &attr, controller_listener_thread, NULL) != 0) {
-        fprintf(stderr, "[PS5-RPC] Failed to start Controller Listener thread!\n");
+    if (pthread_create(&t_kabuki, &attr, kabuki_overlay_thread, NULL) != 0) {
+        fprintf(stderr, "[PS5-RPC] Failed to start Kabuki Overlay thread!\n");
     }
 
     pthread_attr_destroy(&attr);
 
-    // 5. Join threads to keep daemon active
+    // 6. Join threads to keep daemon active
     pthread_join(t_web, NULL);
     pthread_join(t_monitor, NULL);
     pthread_join(t_discord, NULL);
-    pthread_join(t_ctrl, NULL);
+    pthread_join(t_kabuki, NULL);
 
     return 0;
 }

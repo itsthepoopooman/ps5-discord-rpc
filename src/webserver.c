@@ -4,6 +4,7 @@
 #include "web_ui.h"
 #include "title_resolver.h"
 #include "discord_auth.h"
+#include "discord_voice.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -428,6 +429,111 @@ static void handle_auth_mfa_req(int client_fd, const char* body) {
     write(client_fd, resp_buf, strlen(resp_buf));
 }
 
+static void handle_voice_status(int client_fd) {
+    char body[512];
+    snprintf(body, sizeof(body),
+        "{\"connected\":%s,\"guild_id\":\"%s\",\"channel_id\":\"%s\",\"guild_name\":\"%s\",\"channel_name\":\"%s\",\"self_mute\":%s,\"self_deaf\":%s}",
+        g_voice_state.connected ? "true" : "false",
+        g_voice_state.guild_id,
+        g_voice_state.channel_id,
+        g_voice_state.guild_name,
+        g_voice_state.channel_name,
+        g_voice_state.self_mute ? "true" : "false",
+        g_voice_state.self_deaf ? "true" : "false"
+    );
+    char header[256];
+    snprintf(header, sizeof(header),
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: close\r\n\r\n",
+        strlen(body));
+    write(client_fd, header, strlen(header));
+    write(client_fd, body, strlen(body));
+}
+
+static void handle_voice_guilds(int client_fd) {
+    if (g_config.token[0] == '\0') {
+        const char err[] = "HTTP/1.1 401 Unauthorized\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+        write(client_fd, err, strlen(err));
+        return;
+    }
+    char resp_buf[65536] = "";
+    int r = discord_fetch_guilds(g_config.token, resp_buf, sizeof(resp_buf));
+    if (r != 0 || resp_buf[0] == '\0') {
+        const char err[] = "HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+        write(client_fd, err, strlen(err));
+        return;
+    }
+    char header[256];
+    snprintf(header, sizeof(header),
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: close\r\n\r\n",
+        strlen(resp_buf));
+    write(client_fd, header, strlen(header));
+    write(client_fd, resp_buf, strlen(resp_buf));
+}
+
+static void handle_voice_channels(int client_fd, const char* req) {
+    char guild_id[64] = "";
+    get_query_param(req, "guild_id", guild_id, sizeof(guild_id));
+    if (guild_id[0] == '\0' || g_config.token[0] == '\0') {
+        const char err[] = "HTTP/1.1 400 Bad Request\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+        write(client_fd, err, strlen(err));
+        return;
+    }
+    char resp_buf[65536] = "";
+    int r = discord_fetch_channels(guild_id, g_config.token, resp_buf, sizeof(resp_buf));
+    if (r != 0 || resp_buf[0] == '\0') {
+        const char err[] = "HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+        write(client_fd, err, strlen(err));
+        return;
+    }
+    char header[256];
+    snprintf(header, sizeof(header),
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: close\r\n\r\n",
+        strlen(resp_buf));
+    write(client_fd, header, strlen(header));
+    write(client_fd, resp_buf, strlen(resp_buf));
+}
+
+static void handle_voice_join(int client_fd, const char* body) {
+    char guild_id[64] = "";
+    char channel_id[64] = "";
+    char guild_name[64] = "";
+    char channel_name[64] = "";
+    extract_json_str(body, "guild_id", guild_id, sizeof(guild_id));
+    extract_json_str(body, "channel_id", channel_id, sizeof(channel_id));
+    extract_json_str(body, "guild_name", guild_name, sizeof(guild_name));
+    extract_json_str(body, "channel_name", channel_name, sizeof(channel_name));
+
+    if (guild_id[0] && channel_id[0]) {
+        discord_voice_join(guild_id, channel_id, guild_name, channel_name);
+        const char resp[] = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 15\r\nConnection: close\r\n\r\n{\"status\":\"ok\"}";
+        write(client_fd, resp, strlen(resp));
+    } else {
+        const char err[] = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        write(client_fd, err, strlen(err));
+    }
+}
+
+static void handle_voice_action(int client_fd, int action) {
+    if (action == 0) discord_voice_disconnect();
+    else if (action == 1) discord_voice_toggle_mute();
+    else if (action == 2) discord_voice_toggle_deaf();
+
+    const char resp[] = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 15\r\nConnection: close\r\n\r\n{\"status\":\"ok\"}";
+    write(client_fd, resp, strlen(resp));
+}
+
 static void handle_client(int client_fd) {
     char req[8192];
     ssize_t bytes = read_full_request(client_fd, req, sizeof(req));
@@ -457,6 +563,22 @@ static void handle_client(int client_fd) {
         handle_get_config(client_fd);
     } else if (strncmp(req, "GET /api/games", 14) == 0) {
         handle_get_games(client_fd);
+    } else if (strncmp(req, "GET /api/voice/status", 21) == 0) {
+        handle_voice_status(client_fd);
+    } else if (strncmp(req, "GET /api/voice/guilds", 21) == 0) {
+        handle_voice_guilds(client_fd);
+    } else if (strncmp(req, "GET /api/voice/channels", 23) == 0) {
+        handle_voice_channels(client_fd, req);
+    } else if (strncmp(req, "POST /api/voice/join", 20) == 0) {
+        char* body = strstr(req, "\r\n\r\n");
+        if (body) handle_voice_join(client_fd, body + 4);
+        else { const char resp[] = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n"; write(client_fd, resp, strlen(resp)); }
+    } else if (strncmp(req, "POST /api/voice/disconnect", 26) == 0) {
+        handle_voice_action(client_fd, 0);
+    } else if (strncmp(req, "POST /api/voice/toggle_mute", 27) == 0) {
+        handle_voice_action(client_fd, 1);
+    } else if (strncmp(req, "POST /api/voice/toggle_deaf", 27) == 0) {
+        handle_voice_action(client_fd, 2);
     } else if (strncmp(req, "GET /api/blacklist", 18) == 0) {
         handle_toggle_blacklist(client_fd, req);
     } else if (strncmp(req, "GET /api/icon", 13) == 0) {
