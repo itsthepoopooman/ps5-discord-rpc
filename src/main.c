@@ -4,8 +4,6 @@
 #include "timesync.h"
 #include "webserver.h"
 #include "notify.h"
-#include "kabuki_ui.h"
-#include "app_installer.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -115,9 +113,6 @@ int main(void) {
     // 0. Ensure embedded Discord notification icon is written to disk
     write_embedded_icon();
 
-    // 0b. Automatically ensure Discord Media App (DISC00001) is installed on console
-    app_installer_auto_check();
-
     // 1. Load or initialize configuration
     if (!config_load(&g_config)) {
         printf("[PS5-RPC] No existing config found. Setting defaults.\n");
@@ -143,7 +138,7 @@ int main(void) {
     notify_custom(subject_msg, "Discord RPC Started!", NULL);
 
     // 4. Launch background threads with 1MB stack to guarantee stability
-    pthread_t t_web, t_monitor, t_discord, t_kabuki;
+    pthread_t t_web, t_monitor, t_discord;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setstacksize(&attr, 1024 * 1024);
@@ -160,17 +155,12 @@ int main(void) {
         fprintf(stderr, "[PS5-RPC] Failed to start Discord Gateway thread!\n");
     }
 
-    if (pthread_create(&t_kabuki, &attr, kabuki_thread, NULL) != 0) {
-        fprintf(stderr, "[PS5-RPC] Failed to start Kabuki Overlay thread!\n");
-    }
-
     pthread_attr_destroy(&attr);
 
     // 5. Join threads to keep daemon active
     pthread_join(t_web, NULL);
     pthread_join(t_monitor, NULL);
     pthread_join(t_discord, NULL);
-    pthread_join(t_kabuki, NULL);
 
     return 0;
 }

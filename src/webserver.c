@@ -4,7 +4,6 @@
 #include "web_ui.h"
 #include "title_resolver.h"
 #include "discord_auth.h"
-#include "app_installer.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -429,38 +428,6 @@ static void handle_auth_mfa_req(int client_fd, const char* body) {
     write(client_fd, resp_buf, strlen(resp_buf));
 }
 
-static void handle_app_status(int client_fd) {
-    bool installed = is_media_app_installed();
-    char body[128];
-    snprintf(body, sizeof(body), "{\"status\":\"ok\",\"installed\":%s}", installed ? "true" : "false");
-    char header[256];
-    snprintf(header, sizeof(header),
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: application/json\r\n"
-        "Access-Control-Allow-Origin: *\r\n"
-        "Content-Length: %zu\r\n"
-        "Connection: close\r\n\r\n",
-        strlen(body));
-    write(client_fd, header, strlen(header));
-    write(client_fd, body, strlen(body));
-}
-
-static void handle_app_install_req(int client_fd) {
-    bool ok = install_media_app_to_ps5();
-    char body[128];
-    snprintf(body, sizeof(body), "{\"status\":\"%s\",\"installed\":%s}", ok ? "ok" : "error", ok ? "true" : "false");
-    char header[256];
-    snprintf(header, sizeof(header),
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: application/json\r\n"
-        "Access-Control-Allow-Origin: *\r\n"
-        "Content-Length: %zu\r\n"
-        "Connection: close\r\n\r\n",
-        strlen(body));
-    write(client_fd, header, strlen(header));
-    write(client_fd, body, strlen(body));
-}
-
 static void handle_client(int client_fd) {
     char req[8192];
     ssize_t bytes = read_full_request(client_fd, req, sizeof(req));
@@ -490,10 +457,6 @@ static void handle_client(int client_fd) {
         handle_get_config(client_fd);
     } else if (strncmp(req, "GET /api/games", 14) == 0) {
         handle_get_games(client_fd);
-    } else if (strncmp(req, "GET /api/app/status", 19) == 0) {
-        handle_app_status(client_fd);
-    } else if (strncmp(req, "GET /api/app/install", 20) == 0 || strncmp(req, "POST /api/app/install", 21) == 0) {
-        handle_app_install_req(client_fd);
     } else if (strncmp(req, "GET /api/blacklist", 18) == 0) {
         handle_toggle_blacklist(client_fd, req);
     } else if (strncmp(req, "GET /api/icon", 13) == 0) {

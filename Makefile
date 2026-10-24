@@ -14,9 +14,7 @@ SRCS := src/main.c \
         src/config.c \
         src/webserver.c \
         src/title_resolver.c \
-        src/kabuki_ui.c \
         src/discord_auth.c \
-        src/app_installer.c \
         src/discord.c
 
 OBJS := $(SRCS:.c=.o)
