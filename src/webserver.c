@@ -3,6 +3,8 @@
 #include "notify.h"
 #include "web_ui.h"
 #include "title_resolver.h"
+#include "discord_auth.h"
+#include "app_installer.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -353,6 +355,112 @@ static ssize_t read_full_request(int client_fd, char* buf, size_t max_sz) {
     return total;
 }
 
+static bool extract_json_str(const char* json, const char* key, char* out, size_t out_sz) {
+    if (!json || !key || !out || out_sz == 0) return false;
+    out[0] = '\0';
+    char pattern[64];
+    snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+    const char* p = strstr(json, pattern);
+    if (!p) return false;
+    p += strlen(pattern);
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p != '\"') return false;
+    p++;
+    size_t i = 0;
+    while (*p && *p != '\"' && i < out_sz - 1) {
+        if (*p == '\\' && *(p+1)) p++;
+        out[i++] = *p++;
+    }
+    out[i] = '\0';
+    return true;
+}
+
+static void handle_auth_login_req(int client_fd, const char* body) {
+    char login[128] = "";
+    char password[128] = "";
+    extract_json_str(body, "login", login, sizeof(login));
+    extract_json_str(body, "password", password, sizeof(password));
+
+    char resp_buf[8192] = "";
+    int res = discord_auth_login(login, password, resp_buf, sizeof(resp_buf));
+    if (res != 0 || resp_buf[0] == '\0') {
+        const char err[] = "HTTP/1.1 502 Bad Gateway\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 36\r\nConnection: close\r\n\r\n{\"status\":\"error\",\"message\":\"failed\"}";
+        write(client_fd, err, strlen(err));
+        return;
+    }
+
+    char header[512];
+    snprintf(header, sizeof(header),
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: close\r\n\r\n",
+        strlen(resp_buf)
+    );
+    write(client_fd, header, strlen(header));
+    write(client_fd, resp_buf, strlen(resp_buf));
+}
+
+static void handle_auth_mfa_req(int client_fd, const char* body) {
+    char ticket[128] = "";
+    char code[32] = "";
+    extract_json_str(body, "ticket", ticket, sizeof(ticket));
+    extract_json_str(body, "code", code, sizeof(code));
+
+    char resp_buf[8192] = "";
+    int res = discord_auth_mfa(ticket, code, resp_buf, sizeof(resp_buf));
+    if (res != 0 || resp_buf[0] == '\0') {
+        const char err[] = "HTTP/1.1 502 Bad Gateway\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 36\r\nConnection: close\r\n\r\n{\"status\":\"error\",\"message\":\"failed\"}";
+        write(client_fd, err, strlen(err));
+        return;
+    }
+
+    char header[512];
+    snprintf(header, sizeof(header),
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: close\r\n\r\n",
+        strlen(resp_buf)
+    );
+    write(client_fd, header, strlen(header));
+    write(client_fd, resp_buf, strlen(resp_buf));
+}
+
+static void handle_app_status(int client_fd) {
+    bool installed = is_media_app_installed();
+    char body[128];
+    snprintf(body, sizeof(body), "{\"status\":\"ok\",\"installed\":%s}", installed ? "true" : "false");
+    char header[256];
+    snprintf(header, sizeof(header),
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: close\r\n\r\n",
+        strlen(body));
+    write(client_fd, header, strlen(header));
+    write(client_fd, body, strlen(body));
+}
+
+static void handle_app_install_req(int client_fd) {
+    bool ok = install_media_app_to_ps5();
+    char body[128];
+    snprintf(body, sizeof(body), "{\"status\":\"%s\",\"installed\":%s}", ok ? "ok" : "error", ok ? "true" : "false");
+    char header[256];
+    snprintf(header, sizeof(header),
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: close\r\n\r\n",
+        strlen(body));
+    write(client_fd, header, strlen(header));
+    write(client_fd, body, strlen(body));
+}
+
 static void handle_client(int client_fd) {
     char req[8192];
     ssize_t bytes = read_full_request(client_fd, req, sizeof(req));
@@ -382,11 +490,30 @@ static void handle_client(int client_fd) {
         handle_get_config(client_fd);
     } else if (strncmp(req, "GET /api/games", 14) == 0) {
         handle_get_games(client_fd);
+    } else if (strncmp(req, "GET /api/app/status", 19) == 0) {
+        handle_app_status(client_fd);
+    } else if (strncmp(req, "GET /api/app/install", 20) == 0 || strncmp(req, "POST /api/app/install", 21) == 0) {
+        handle_app_install_req(client_fd);
     } else if (strncmp(req, "GET /api/blacklist", 18) == 0) {
         handle_toggle_blacklist(client_fd, req);
     } else if (strncmp(req, "GET /api/icon", 13) == 0) {
         handle_get_icon(client_fd, req);
-
+    } else if (strncmp(req, "POST /api/auth/login", 20) == 0) {
+        char* body = strstr(req, "\r\n\r\n");
+        if (body) {
+            handle_auth_login_req(client_fd, body + 4);
+        } else {
+            const char resp[] = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
+            write(client_fd, resp, strlen(resp));
+        }
+    } else if (strncmp(req, "POST /api/auth/mfa", 18) == 0) {
+        char* body = strstr(req, "\r\n\r\n");
+        if (body) {
+            handle_auth_mfa_req(client_fd, body + 4);
+        } else {
+            const char resp[] = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
+            write(client_fd, resp, strlen(resp));
+        }
     } else if (strncmp(req, "POST /api/upload_icon", 21) == 0) {
         handle_upload_icon(client_fd, req, (size_t)bytes);
     } else if (strncmp(req, "POST /api/config", 16) == 0) {
