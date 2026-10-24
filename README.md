@@ -14,6 +14,9 @@ A native, zero-PC Discord Rich Presence background daemon for jailbroken PlaySta
 - **Smart Game Detection:**
   - Auto-clears Discord presence when a game closes (leaving your profile clean).
   - Restarts the playtime timer whenever you switch games.
+- **Native On-Console UI (No Extra Payloads):**
+  - Press **D-Pad UP + R3** on your DualSense controller at any time to open the full-screen Discord Control Hub directly on your TV using the PS5's built-in WebKit engine.
+  - Complete controller navigation and virtual keyboard support right on your television.
 - **Multiple Discord Login Methods (No Token Mining Required):**
   - **QR Code Remote Auth:** Point your phone camera at the screen and tap "Log In" using the Discord Mobile app (`User Settings -> Scan QR Code`).
   - **Embedded Webview / Browser Login:** Log in via Discord Web in-browser; the session token is automatically captured upon completion.
@@ -41,14 +44,18 @@ A notification will pop up on your TV screen displaying your console's web dashb
 
 ![PS5 Notification Pop-up](assets/ps5_notification.png)
 
-### 2. Log in & Configure via Web Dashboard (`http://<PS5_IP>:6767`)
-1. On your phone, PC, or console browser, open `http://<PS5_IP>:6767`.
-2. Choose your login method:
-   - **QR Code:** Open Discord on your phone, go to **User Settings &rarr; Scan QR Code**, and scan the screen.
-   - **Webview Login:** Click **Open Discord Login Window** to sign in through Discord Web.
-   - **Email + Password:** Enter your login credentials and 2FA code.
-   - **Token Paste:** Paste your token directly.
-3. Click **Save & Apply Settings**.
+### 2. Log in & Configure (Choose your preferred way)
+
+- **On your TV directly:** Press **D-Pad UP + R3** on your DualSense controller. The PS5 will immediately open the Discord Hub full-screen!
+- **On phone, PC, or console browser:** Open `http://<PS5_IP>:6767`.
+
+Choose your login method:
+- **QR Code:** Open Discord on your phone, go to **User Settings &rarr; Scan QR Code**, and scan the screen.
+- **Webview Login:** Click **Open Discord Login Window** to sign in through Discord Web.
+- **Email + Password:** Enter your login credentials and 2FA code.
+- **Token Paste:** Paste your token directly.
+
+Click **Save & Apply Settings**.
 
 ![Web Dashboard Settings](assets/web_panel_dashboard.png)
 

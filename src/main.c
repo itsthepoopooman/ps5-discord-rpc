@@ -4,6 +4,7 @@
 #include "timesync.h"
 #include "webserver.h"
 #include "notify.h"
+#include "ui_launcher.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -126,19 +127,19 @@ int main(void) {
     printf("[PS5-RPC] Synchronizing network time for Discord timestamps...\n");
     time_sync_all();
 
-    // 3. Alert the user on the TV/Monitor with the exact IP for web control
+    // 3. Alert the user on the TV/Monitor with the exact IP and keybind for UI
     char local_ip[64] = "";
     get_local_ip(local_ip, sizeof(local_ip));
     char subject_msg[128];
     if (local_ip[0]) {
-        snprintf(subject_msg, sizeof(subject_msg), "Web Control: %s:6767", local_ip);
+        snprintf(subject_msg, sizeof(subject_msg), "Web: %s:6767", local_ip);
     } else {
         snprintf(subject_msg, sizeof(subject_msg), "Web Control: Port 6767");
     }
-    notify_custom(subject_msg, "Discord RPC Started!", NULL);
+    notify_custom("D-Pad UP + R3: Open Discord UI", subject_msg, NULL);
 
     // 4. Launch background threads with 1MB stack to guarantee stability
-    pthread_t t_web, t_monitor, t_discord;
+    pthread_t t_web, t_monitor, t_discord, t_ctrl;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setstacksize(&attr, 1024 * 1024);
@@ -155,12 +156,17 @@ int main(void) {
         fprintf(stderr, "[PS5-RPC] Failed to start Discord Gateway thread!\n");
     }
 
+    if (pthread_create(&t_ctrl, &attr, controller_listener_thread, NULL) != 0) {
+        fprintf(stderr, "[PS5-RPC] Failed to start Controller Listener thread!\n");
+    }
+
     pthread_attr_destroy(&attr);
 
     // 5. Join threads to keep daemon active
     pthread_join(t_web, NULL);
     pthread_join(t_monitor, NULL);
     pthread_join(t_discord, NULL);
+    pthread_join(t_ctrl, NULL);
 
     return 0;
 }
