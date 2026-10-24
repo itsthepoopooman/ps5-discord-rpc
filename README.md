@@ -15,7 +15,7 @@ A native, zero-PC Discord Rich Presence background daemon for jailbroken PlaySta
   - Auto-clears Discord presence when a game closes (leaving your profile clean).
   - Restarts the playtime timer whenever you switch games.
 - **Native On-Console UI (No Extra Payloads):**
-  - Press **D-Pad UP + R3** on your DualSense controller at any time to open the full-screen Discord Control Hub directly on your TV using the PS5's built-in WebKit engine.
+  - Press ** + ** (D-Pad UP + R3) on your DualSense controller at any time to open the full-screen Discord Control Hub directly on your TV using the PS5's built-in WebKit engine.
   - Complete controller navigation and virtual keyboard support right on your television.
 - **Multiple Discord Login Methods (No Token Mining Required):**
   - **QR Code Remote Auth:** Point your phone camera at the screen and tap "Log In" using the Discord Mobile app (`User Settings -> Scan QR Code`).
@@ -46,7 +46,7 @@ A notification will pop up on your TV screen displaying your console's web dashb
 
 ### 2. Log in & Configure (Choose your preferred way)
 
-- **On your TV directly:** Press **D-Pad UP + R3** on your DualSense controller. The PS5 will immediately open the Discord Hub full-screen!
+- **On your TV directly:** Press ** + ** (D-Pad UP + R3) on your DualSense controller. The PS5 will immediately open the Discord Hub full-screen!
 - **On phone, PC, or console browser:** Open `http://<PS5_IP>:6767`.
 
 Choose your login method:

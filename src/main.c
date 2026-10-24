@@ -136,7 +136,7 @@ int main(void) {
     } else {
         snprintf(subject_msg, sizeof(subject_msg), "Web Control: Port 6767");
     }
-    notify_custom("D-Pad UP + R3: Open Discord UI", subject_msg, NULL);
+    notify_custom("\xef\xa2\x84 + \xef\xa2\x8d: Open Discord UI", subject_msg, NULL);
 
     // 4. Launch background threads with 1MB stack to guarantee stability
     pthread_t t_web, t_monitor, t_discord, t_ctrl;
