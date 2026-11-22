@@ -141,8 +141,32 @@ static int discord_https_get(const char* path, const char* token, char* out_resp
     if (!body) return -1;
     body += 4;
 
-    strncpy(out_resp, body, out_resp_sz - 1);
-    out_resp[out_resp_sz - 1] = '\0';
+    // Discord API uses Transfer-Encoding: chunked over HTTP/1.1
+    // Parse and strip chunk lengths if present
+    const char* p = body;
+    char* endptr = NULL;
+    unsigned long first_chunk = strtoul(p, &endptr, 16);
+    if (endptr != p && endptr && (*endptr == '\r' || *endptr == '\n')) {
+        size_t out_pos = 0;
+        while (*p && out_pos < out_resp_sz - 1) {
+            unsigned long clen = strtoul(p, &endptr, 16);
+            if (endptr == p || clen == 0) break;
+            while (*endptr == '\r' || *endptr == '\n') endptr++;
+            p = endptr;
+            size_t to_copy = (size_t)clen;
+            if (out_pos + to_copy >= out_resp_sz - 1) {
+                to_copy = out_resp_sz - 1 - out_pos;
+            }
+            memcpy(out_resp + out_pos, p, to_copy);
+            out_pos += to_copy;
+            p += clen;
+            while (*p == '\r' || *p == '\n') p++;
+        }
+        out_resp[out_pos] = '\0';
+    } else {
+        strncpy(out_resp, body, out_resp_sz - 1);
+        out_resp[out_resp_sz - 1] = '\0';
+    }
     return 0;
 }
 
